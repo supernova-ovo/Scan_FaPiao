@@ -34,7 +34,7 @@ const getFileExt = (record) => {
   const clean = source.split('?')[0].split('#')[0];
   const parts = clean.split('.');
   if (parts.length < 2) return '';
-  return parts.pop().toLowerCase();
+  return parts.pop().toLowerCase(); //测试git
 };
 
 const isImageExt = (ext) => ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext);
@@ -127,7 +127,7 @@ const InvoiceTable = ({
     <div className="section-header">
       <h2>最近上传</h2>
       <div className="actions">
-        <div className="search-group">
+        <div className="search-group"> 
           <input
             type="text"
             value={query}
