@@ -57,7 +57,7 @@ export const normalizeInvoiceData = (raw, file) => {
 export const buildWhereFromQuery = (query) => {
   const trimmed = String(query || '').trim();
   if (!trimmed) return {};
-  return { FaPiaoHM: trimmed };
+  return { where_FaPiaoHM: trimmed };
 };
 
 const extractFileNameFromUrl = (url) => {
@@ -90,21 +90,26 @@ export const createProcessingRecord = (file, key) => ({
 });
 
 export const mapLogToRecord = (log) => {
-  const payload = log && log.json ? (() => {
+  const parsed = (() => {
+    if (!log || !log.json) return {};
+    if (typeof log.json === 'object') return log.json || {};
     try {
       return JSON.parse(log.json);
     } catch (e) {
       return {};
     }
-  })() : {};
+  })();
+  const raw = parsed && typeof parsed === 'object' && parsed.data && typeof parsed.data === 'object' ? parsed.data : parsed;
   const fileName = extractFileNameFromUrl(log && log.Url ? log.Url : '');
-  const data = normalizeInvoiceData(payload, { name: fileName });
+  const data = normalizeInvoiceData(raw, { name: fileName });
+  if (data.code === '—' && log && log.FaPiaoDM) data.code = String(log.FaPiaoDM);
+  if (data.id === '—' && log && log.FaPiaoHM) data.id = String(log.FaPiaoHM);
   if (log && log.SaoMiaoSJ) {
     const d = new Date(log.SaoMiaoSJ);
     data.uploadTime = Number.isNaN(d.getTime()) ? String(log.SaoMiaoSJ) : formatDateTime(d);
   }
   const ok = log && (log.success === 1 || log.success === true || String(log.success).toLowerCase() === 'true');
-  const message = payload && payload.message ? payload.message : '查验失败';
+  const message = parsed && parsed.message ? parsed.message : '查验失败';
   return {
     ...data,
     status: ok ? 'success' : 'fail',
@@ -114,6 +119,6 @@ export const mapLogToRecord = (log) => {
       fileUrl: log && log.Url ? String(log.Url) : ''
     },
     message,
-    raw: payload
+    raw
   };
 };

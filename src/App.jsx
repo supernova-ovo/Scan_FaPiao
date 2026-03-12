@@ -4,10 +4,18 @@ import StatsGrid from './components/StatsGrid.jsx';
 import UploadSection from './components/UploadSection.jsx';
 import InvoiceTable from './components/InvoiceTable.jsx';
 import Drawer from './components/Drawer.jsx';
-import { fetchScanLogs, fetchStats, verifyInvoiceWithUpload } from './services/api.js';
+import { fetchScanLogs, fetchStats, markScanLogDeleted, verifyInvoiceWithUpload } from './services/api.js';
 import { buildWhereFromQuery, createProcessingRecord, mapLogToRecord } from './utils/invoice.js';
 
 const pageSize = 10;
+
+const isDeletedRow = (row) => {
+  const value = row && (row.isdelete ?? row.isdelet ?? row.IsDelete ?? row.IsDelet ?? row.ISDELETE ?? row.ISDELET);
+  if (value === undefined || value === null || value === '') return false;
+  if (typeof value === 'boolean') return value;
+  const text = String(value).toLowerCase();
+  return text === '1' || text === 'true' || text === 'y' || text === 'yes';
+};
 
 const App = () => {
   const [records, setRecords] = useState([]);
@@ -15,8 +23,12 @@ const App = () => {
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [query, setQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
+  const [cachedNotice, setCachedNotice] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / pageSize)), [totalCount]);
 
@@ -24,9 +36,31 @@ const App = () => {
     try {
       setError('');
       const { rows, total, where, stats: fetchedStats } = await fetchScanLogs(pageIndex, pageSize, searchQuery);
+      const activeRows = rows.filter((row) => !isDeletedRow(row));
       console.log('[scan-logs]', rows);
-      const mapped = rows.map(mapLogToRecord).map((item, index) => ({ ...item, key: `${item.code}-${item.id}-${index}` }));
-      setRecords(mapped);
+      const mapped = activeRows
+        .map((row, index) => ({ row, index }))
+        .map(({ row, index }) => {
+          const item = mapLogToRecord(row);
+          const rowId = row && (row.ID || row.Id || row.id || row._id || row.sys_id);
+          return { ...item, rowId: rowId ? String(rowId) : '', key: rowId ? String(rowId) : `${item.code}-${item.id}-${index}` };
+        });
+      const deduped = (() => {
+        const map = new Map();
+        mapped.forEach((item) => {
+          const k = `${item.code}-${item.id}`;
+          const existed = map.get(k);
+          if (!existed) {
+            map.set(k, item);
+            return;
+          }
+          const a = String(existed.uploadTime || '');
+          const b = String(item.uploadTime || '');
+          if (b > a) map.set(k, item);
+        });
+        return Array.from(map.values());
+      })();
+      setRecords(deduped);
       setTotalCount(total);
       if (fetchedStats) {
         const fail = Math.max(fetchedStats.total - fetchedStats.success, 0);
@@ -41,12 +75,53 @@ const App = () => {
     }
   }, []);
 
+  const handleDelete = useCallback(async (record) => {
+    if (!record || !record.rowId) {
+      setError('记录缺少唯一ID');
+      return;
+    }
+    setPendingDelete(record);
+  }, [loadLogs, page, query, selected]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete || !pendingDelete.rowId) return;
+    try {
+      setError('');
+      setDeleteLoading(true);
+      const res = await markScanLogDeleted(pendingDelete.rowId);
+      console.log('[delete response]', res);
+      if (!res || res.STATUS === 'Error') {
+        setError('删除失败');
+        return;
+      }
+      if (selected && selected.key === pendingDelete.key) setSelected(null);
+      setRecords((prev) => prev.filter((item) => item.key !== pendingDelete.key));
+      setPendingDelete(null);
+      loadLogs(page, query);
+    } catch (e) {
+      setError('删除失败');
+      console.warn('delete failed', e);
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [loadLogs, page, pendingDelete, query, selected]);
+
+  const cancelDelete = useCallback(() => {
+    if (deleteLoading) return;
+    setPendingDelete(null);
+  }, [deleteLoading]);
+
+  const closeCachedNotice = useCallback(() => {
+    setCachedNotice(false);
+  }, []);
+
   useEffect(() => {
-    loadLogs(page, query);
-  }, [page, query, loadLogs]);
+    loadLogs(page, searchQuery);
+  }, [page, searchQuery, loadLogs]);
 
   useEffect(() => {
     window.verifyInvoiceWithUpload = verifyInvoiceWithUpload;
+    window.notifyInvoiceCached = () => setCachedNotice(true);
   }, []);
 
   const handleFiles = async (files) => {
@@ -86,13 +161,17 @@ const App = () => {
         <InvoiceTable
           records={records}
           query={query}
+          displayQuery={searchQuery}
           onQueryChange={setQuery}
           onSearch={() => {
+            const trimmed = String(query || '').trim();
+            setSearchQuery(trimmed);
             setPage(1);
-            loadLogs(1, query);
+            loadLogs(1, trimmed);
           }}
           onClear={() => {
             setQuery('');
+            setSearchQuery('');
             setPage(1);
             loadLogs(1, '');
           }}
@@ -101,9 +180,41 @@ const App = () => {
           onPrev={() => setPage((p) => Math.max(1, p - 1))}
           onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
           onView={(record) => setSelected(record)}
+          onDelete={handleDelete}
         />
       </main>
       <Drawer record={selected} onClose={() => setSelected(null)} />
+      <div className={`modal-overlay${pendingDelete ? ' active' : ''}`} onClick={(e) => {
+        if (e.target === e.currentTarget) cancelDelete();
+      }}>
+        <div className="modal">
+          <div className="modal-header">确认删除</div>
+          <div className="modal-body">
+            确认删除发票 {pendingDelete ? `${pendingDelete.code || '—'} / ${pendingDelete.id || '—'}` : ''} 吗？
+          </div>
+          <div className="modal-actions">
+            <button className="btn-view" onClick={cancelDelete} disabled={deleteLoading}>
+              取消
+            </button>
+            <button className="btn-view btn-delete" onClick={confirmDelete} disabled={deleteLoading}>
+              确认删除
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className={`modal-overlay${cachedNotice ? ' active' : ''}`} onClick={(e) => {
+        if (e.target === e.currentTarget) closeCachedNotice();
+      }}>
+        <div className="modal">
+          <div className="modal-header">提示</div>
+          <div className="modal-body">此发票已经验真过</div>
+          <div className="modal-actions">
+            <button className="btn-view" onClick={closeCachedNotice}>
+              我知道了
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

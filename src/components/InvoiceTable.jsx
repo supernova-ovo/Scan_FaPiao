@@ -39,12 +39,13 @@ const getFileExt = (record) => {
 
 const isImageExt = (ext) => ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext);
 
-const InvoiceRow = ({ record, onView }) => {
+const InvoiceRow = ({ record, onView, onDelete }) => {
   const ext = getFileExt(record);
   const preview = record.preview || {};
   const canShowImage = preview.isImage || isImageExt(ext);
   const thumbUrl = preview.dataUrl || (canShowImage ? preview.fileUrl : '');
   const isSuccess = record.status === 'success';
+  const canDelete = Boolean(record.rowId);
   return (
     <tr>
       <td>
@@ -106,6 +107,9 @@ const InvoiceRow = ({ record, onView }) => {
         <button className="btn-view" onClick={() => onView(record)}>
           查看
         </button>
+        <button className="btn-view btn-delete" onClick={() => onDelete(record)} disabled={!canDelete}>
+          删除
+        </button>
       </td>
     </tr>
   );
@@ -114,6 +118,7 @@ const InvoiceRow = ({ record, onView }) => {
 const InvoiceTable = ({
   records,
   query,
+  displayQuery,
   onQueryChange,
   onSearch,
   onClear,
@@ -121,74 +126,81 @@ const InvoiceTable = ({
   totalPages,
   onPrev,
   onNext,
-  onView
-}) => (
-  <section className="table-section">
-    <div className="section-header">
-      <h2>最近上传</h2>
-      <div className="actions">
-        <div className="search-group"> 
-          <input
-            type="text"
-            value={query}
-            placeholder="输入发票号码"
-            onChange={(e) => onQueryChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onSearch();
-            }}
-          />
-          <button className="btn-text" onClick={onSearch}>
-            查询
-          </button>
-          <button className="btn-text" onClick={onClear}>
-            清空
-          </button>
+  onView,
+  onDelete
+}) => {
+  const trimmedQuery = String(displayQuery || '').trim();
+  return (
+    <section className="table-section">
+      <div className="section-header">
+        <h2>
+          最近上传
+          {trimmedQuery ? <span className="tag tag-date">查询：{trimmedQuery}</span> : null}
+        </h2>
+        <div className="actions">
+          <div className="search-group">
+            <input
+              type="text"
+              value={query}
+              placeholder="输入发票号码"
+              onChange={(e) => onQueryChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onSearch();
+              }}
+            />
+            <button className="btn-text" onClick={onSearch}>
+              查询
+            </button>
+            <button className="btn-text" onClick={onClear}>
+              清空
+            </button>
+          </div>
+          <button className="btn-text">导出记录</button>
         </div>
-        <button className="btn-text">导出记录</button>
       </div>
-    </div>
-    <div className="table-container">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th width="80">预览</th>
-            <th>发票代码/号码</th>
-            <th>上传时间</th>
-            <th>开票日期</th>
-            <th>发票金额</th>
-            <th>销方名称</th>
-            <th>发票类型</th>
-            <th>查验状态</th>
-            <th width="100">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {records.length === 0 ? (
+      <div className="table-container">
+        <table className="data-table">
+          <thead>
             <tr>
-              <td colSpan="9">暂无记录</td>
+              <th width="80">预览</th>
+              <th>发票代码/号码</th>
+              <th>上传时间</th>
+              <th>开票日期</th>
+              <th>发票金额</th>
+              <th>销方名称</th>
+              <th>发票类型</th>
+              <th>查验状态</th>
+              <th width="100">操作</th>
             </tr>
-          ) : (
-            records.map((record) =>
-              record.status === 'processing' ? (
-                <ProcessingRow key={record.key} />
-              ) : (
-                <InvoiceRow key={record.key || `${record.code}-${record.id}-${record.uploadTime}`} record={record} onView={onView} />
+          </thead>
+          <tbody>
+            {records.length === 0 ? (
+              <tr>
+                <td colSpan="9">{trimmedQuery ? `未找到发票号 ${trimmedQuery}` : '暂无记录'}</td>
+              </tr>
+            ) : (
+              records.map((record) =>
+                record.status === 'processing' ? (
+                  <ProcessingRow key={record.key} />
+                ) : (
+                  <InvoiceRow key={record.key || `${record.code}-${record.id}-${record.uploadTime}`} record={record} onView={onView} onDelete={onDelete} />
+                )
               )
-            )
-          )}
-        </tbody>
-      </table>
-    </div>
-    <div className="pagination">
-      <button className="btn-text" onClick={onPrev} disabled={page <= 1}>
-        上一页
-      </button>
-      <span className="page-info">第 {page} / {totalPages} 页</span>
-      <button className="btn-text" onClick={onNext} disabled={page >= totalPages}>
-        下一页
-      </button>
-    </div>
-  </section>
-);
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="pagination">
+        <button className="btn-text" onClick={onPrev} disabled={page <= 1}>
+          上一页
+        </button>
+        <span className="page-info">第 {page} / {totalPages} 页</span>
+        <button className="btn-text" onClick={onNext} disabled={page >= totalPages}>
+          下一页
+        </button>
+      </div>
+    </section>
+  );
+};
 
 export default InvoiceTable;

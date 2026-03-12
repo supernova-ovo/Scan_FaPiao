@@ -9,6 +9,11 @@ export default defineConfig({
         target: 'https://test1.tepc.cn',
         changeOrigin: true,
         secure: false
+      },
+      '/thirdpartservice': {
+        target: 'https://lolapi.tepc.cn',
+        changeOrigin: true,
+        secure: false
       }
     }
   }

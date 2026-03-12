@@ -1,3 +1,4 @@
+import SparkMD5 from 'spark-md5';
 import { appConfig } from '../config';
 import { buildWhereFromQuery, normalizeInvoiceData } from '../utils/invoice';
 
@@ -11,6 +12,99 @@ const formatDateTime = (date) => {
   const minute = String(date.getMinutes()).padStart(2, '0');
   const second = String(date.getSeconds()).padStart(2, '0');
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+};
+
+const normalizeDateTime = (value) => {
+  if (!value) return '';
+  if (value instanceof Date) return formatDateTime(value);
+  if (typeof value === 'number') {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? '' : formatDateTime(d);
+  }
+  const text = String(value).trim();
+  if (!text) return '';
+  if (/^\d{8}$/.test(text)) {
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
+  }
+  const d = new Date(text);
+  if (!Number.isNaN(d.getTime())) {
+    return formatDateTime(d);
+  }
+  return text;
+};
+
+const base64Encode = (value) => {
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+};
+
+const createGuid = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const random = (Math.random() * 16) | 0;
+    const value = char === 'x' ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+};
+
+const toNullableValue = (value) => {
+  if (value === '' || value === undefined || value === null) return null;
+  return value;
+};
+
+const toNullableNumber = (value) => {
+  if (value === '' || value === undefined || value === null) return null;
+  const text = String(value).replace(/,/g, '');
+  const num = Number(text);
+  return Number.isNaN(num) ? value : num;
+};
+
+const trimText = (value) => String(value || '').trim();
+
+const getCurrentGongHao = () => {
+  const candidates = [
+    appConfig.GongHao,
+    appConfig.gonghao,
+    appConfig.userId,
+    appConfig.userID,
+    appConfig.USERID
+  ];
+  const picked = candidates.find((value) => String(value || '').trim() !== '');
+  return picked ? String(picked).trim() : '';
+};
+
+const fetchCompanyAllowList = async () => {
+  const id = appConfig.companyAllowSectionId;
+  if (!id) return [];
+  const result = await querySection(id, { where: {}, pageIndex: 1, pageSize: 200 });
+  if (!result || result.STATUS !== 'Success') return [];
+  const rows = Array.isArray(result.ROWS) ? result.ROWS : [];
+  return rows
+    .map((r) => ({
+      nsrsbh: trimText(r.NaShuiRSBH || r.nsrsbh || r.NSRSBH || ''),
+      name: trimText(r.DanWeiMC || r.name || r.DanWeiMc || '')
+    }))
+    .filter((x) => x.nsrsbh && x.name);
+};
+
+const isInvoiceAllowedForCompany = async (payload) => {
+  const list = await fetchCompanyAllowList();
+  const scanNSBH = trimText(payload && (payload.gfNsrsbh || payload.gfnsrsbh || payload.gfsh || ''));
+  const scanName = trimText(payload && (payload.gfMc || payload.gfmc || payload.company || ''));
+  if (!scanNSBH || !scanName || !list.length) return false;
+  for (let i = 0; i < list.length; i += 1) {
+    if (scanNSBH === list[i].nsrsbh && scanName === list[i].name) {
+      return true;
+    }
+  }
+  return false;
 };
 
 const readFileAsBase64 = (file) =>
@@ -37,114 +131,9 @@ const readFileAsArrayBuffer = (file) =>
     reader.readAsArrayBuffer(file);
   });
 
-const md5 = (bytes) => {
-  const hexChr = '0123456789abcdef';
-  const rhex = (n) => {
-    let s = '';
-    for (let j = 0; j < 4; j += 1) {
-      const byte = (n >>> (j * 8)) & 0xff;
-      s += hexChr.charAt((byte >>> 4) & 0x0f) + hexChr.charAt(byte & 0x0f);
-    }
-    return s;
-  };
-  const add32 = (a, b) => (a + b) & 0xffffffff;
-  const cmn = (q, a, b, x, s, t) => add32(((add32(add32(a, q), add32(x, t)) << s) | (add32(add32(a, q), add32(x, t)) >>> (32 - s))), b);
-  const ff = (a, b, c, d, x, s, t) => cmn((b & c) | (~b & d), a, b, x, s, t);
-  const gg = (a, b, c, d, x, s, t) => cmn((b & d) | (c & ~d), a, b, x, s, t);
-  const hh = (a, b, c, d, x, s, t) => cmn(b ^ c ^ d, a, b, x, s, t);
-  const ii = (a, b, c, d, x, s, t) => cmn(c ^ (b | ~d), a, b, x, s, t);
-  const words = [];
-  for (let i = 0; i < bytes.length; i += 1) {
-    words[i >> 2] |= bytes[i] << ((i % 4) * 8);
-  }
-  const bitLen = bytes.length * 8;
-  words[bitLen >> 5] |= 0x80 << (bitLen % 32);
-  words[(((bitLen + 64) >>> 9) << 4) + 14] = bitLen;
-  let a = 1732584193;
-  let b = -271733879;
-  let c = -1732584194;
-  let d = 271733878;
-  for (let i = 0; i < words.length; i += 16) {
-    const oldA = a;
-    const oldB = b;
-    const oldC = c;
-    const oldD = d;
-    a = ff(a, b, c, d, words[i + 0], 7, -680876936);
-    d = ff(d, a, b, c, words[i + 1], 12, -389564586);
-    c = ff(c, d, a, b, words[i + 2], 17, 606105819);
-    b = ff(b, c, d, a, words[i + 3], 22, -1044525330);
-    a = ff(a, b, c, d, words[i + 4], 7, -176418897);
-    d = ff(d, a, b, c, words[i + 5], 12, 1200080426);
-    c = ff(c, d, a, b, words[i + 6], 17, -1473231341);
-    b = ff(b, c, d, a, words[i + 7], 22, -45705983);
-    a = ff(a, b, c, d, words[i + 8], 7, 1770035416);
-    d = ff(d, a, b, c, words[i + 9], 12, -1958414417);
-    c = ff(c, d, a, b, words[i + 10], 17, -42063);
-    b = ff(b, c, d, a, words[i + 11], 22, -1990404162);
-    a = ff(a, b, c, d, words[i + 12], 7, 1804603682);
-    d = ff(d, a, b, c, words[i + 13], 12, -40341101);
-    c = ff(c, d, a, b, words[i + 14], 17, -1502002290);
-    b = ff(b, c, d, a, words[i + 15], 22, 1236535329);
-    a = gg(a, b, c, d, words[i + 1], 5, -165796510);
-    d = gg(d, a, b, c, words[i + 6], 9, -1069501632);
-    c = gg(c, d, a, b, words[i + 11], 14, 643717713);
-    b = gg(b, c, d, a, words[i + 0], 20, -373897302);
-    a = gg(a, b, c, d, words[i + 5], 5, -701558691);
-    d = gg(d, a, b, c, words[i + 10], 9, 38016083);
-    c = gg(c, d, a, b, words[i + 15], 14, -660478335);
-    b = gg(b, c, d, a, words[i + 4], 20, -405537848);
-    a = gg(a, b, c, d, words[i + 9], 5, 568446438);
-    d = gg(d, a, b, c, words[i + 14], 9, -1019803690);
-    c = gg(c, d, a, b, words[i + 3], 14, -187363961);
-    b = gg(b, c, d, a, words[i + 8], 20, 1163531501);
-    a = gg(a, b, c, d, words[i + 13], 5, -1444681467);
-    d = gg(d, a, b, c, words[i + 2], 9, -51403784);
-    c = gg(c, d, a, b, words[i + 7], 14, 1735328473);
-    b = gg(b, c, d, a, words[i + 12], 20, -1926607734);
-    a = hh(a, b, c, d, words[i + 5], 4, -378558);
-    d = hh(d, a, b, c, words[i + 8], 11, -2022574463);
-    c = hh(c, d, a, b, words[i + 11], 16, 1839030562);
-    b = hh(b, c, d, a, words[i + 14], 23, -35309556);
-    a = hh(a, b, c, d, words[i + 1], 4, -1530992060);
-    d = hh(d, a, b, c, words[i + 4], 11, 1272893353);
-    c = hh(c, d, a, b, words[i + 7], 16, -155497632);
-    b = hh(b, c, d, a, words[i + 10], 23, -1094730640);
-    a = hh(a, b, c, d, words[i + 13], 4, 681279174);
-    d = hh(d, a, b, c, words[i + 0], 11, -358537222);
-    c = hh(c, d, a, b, words[i + 3], 16, -722521979);
-    b = hh(b, c, d, a, words[i + 6], 23, 76029189);
-    a = hh(a, b, c, d, words[i + 9], 4, -640364487);
-    d = hh(d, a, b, c, words[i + 12], 11, -421815835);
-    c = hh(c, d, a, b, words[i + 15], 16, 530742520);
-    b = hh(b, c, d, a, words[i + 2], 23, -995338651);
-    a = ii(a, b, c, d, words[i + 0], 6, -198630844);
-    d = ii(d, a, b, c, words[i + 7], 10, 1126891415);
-    c = ii(c, d, a, b, words[i + 14], 15, -1416354905);
-    b = ii(b, c, d, a, words[i + 5], 21, -57434055);
-    a = ii(a, b, c, d, words[i + 12], 6, 1700485571);
-    d = ii(d, a, b, c, words[i + 3], 10, -1894986606);
-    c = ii(c, d, a, b, words[i + 10], 15, -1051523);
-    b = ii(b, c, d, a, words[i + 1], 21, -2054922799);
-    a = ii(a, b, c, d, words[i + 8], 6, 1873313359);
-    d = ii(d, a, b, c, words[i + 15], 10, -30611744);
-    c = ii(c, d, a, b, words[i + 6], 15, -1560198380);
-    b = ii(b, c, d, a, words[i + 13], 21, 1309151649);
-    a = ii(a, b, c, d, words[i + 4], 6, -145523070);
-    d = ii(d, a, b, c, words[i + 11], 10, -1120210379);
-    c = ii(c, d, a, b, words[i + 2], 15, 718787259);
-    b = ii(b, c, d, a, words[i + 9], 21, -343485551);
-    a = add32(a, oldA);
-    b = add32(b, oldB);
-    c = add32(c, oldC);
-    d = add32(d, oldD);
-  }
-  return rhex(a) + rhex(b) + rhex(c) + rhex(d);
-};
-
 const computeMd5 = async (file) => {
   const buffer = await readFileAsArrayBuffer(file);
-  const bytes = new Uint8Array(buffer);
-  return md5(bytes);
+  return SparkMD5.ArrayBuffer.hash(buffer);
 };
 
 const parseJsonValue = (value) => {
@@ -160,12 +149,13 @@ const parseJsonValue = (value) => {
   return null;
 };
 
-const findCachedByMd5 = async (md5Value) => {
+const findCachedByMd5AndUser = async (md5Value, gonghao) => {
   if (!md5Value) return null;
-  const result = await querySection('d0855c81-fd6a-7c63-5eb7-e9d5e7b92cf5', {
-    where: { QRCodeStr: md5Value },
+  const where = gonghao ? { QRCodeStr: md5Value, GongHao: gonghao } : { QRCodeStr: md5Value };
+  const result = await querySection(appConfig.invoiceScanLogSectionId, {
+    where,
     pageIndex: 1,
-    pageSize: 1
+    pageSize: 3
   });
   if (!result || result.STATUS !== 'Success') {
     return null;
@@ -184,6 +174,23 @@ const getRowId = (row) => {
   return row.ID || row.Id || row.id || row._id || '';
 };
 
+const queryByWhere = async (id, where, pageSize = 5) => {
+  const result = await querySection(id, { where, pageIndex: 1, pageSize });
+  if (!result || result.STATUS !== 'Success') return [];
+  return Array.isArray(result.ROWS) ? result.ROWS : [];
+};
+
+const findScanLogByInvoice = async (fpdm, fphm) => {
+  const sectionId = appConfig.invoiceScanLogSectionId;
+  if (!sectionId) return null;
+  const rows1 = await queryByWhere(sectionId, { FaPiaoDM: fpdm || '', FaPiaoHM: fphm || '' }, 5);
+  const hit1 = rows1.find((r) => String(r.FaPiaoHM || '') === String(fphm || ''));
+  if (hit1) return hit1;
+  const rows2 = await queryByWhere(sectionId, { fpdm: fpdm || '', fphm: fphm || '' }, 5);
+  const hit2 = rows2.find((r) => String(r.fphm || '') === String(fphm || ''));
+  return hit2 || null;
+};
+
 const parseResponseJson = async (response) => {
   const text = await response.text();
   if (!text) return {};
@@ -194,29 +201,14 @@ const parseResponseJson = async (response) => {
   }
 };
 
-const parseJsonFromResponse = async (response) => {
-  const text = await response.text();
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    return null;
+const postSectionDataset = async (id, dataset) => {
+  if (!id) {
+    return { STATUS: 'Error', MESSAGE: '区块ID不能为空' };
   }
-};
-
-const updateSectionRow = async (id, row, fields) => {
-  if (!id || !row || !fields) return null;
-  const rowId = getRowId(row);
-  if (!rowId) return null;
   const formData = new FormData();
   formData.append('id', id);
   formData.append('mode', 'update');
-  formData.append('_id', String(rowId));
-  formData.append('ID', String(rowId));
-  Object.entries(fields).forEach(([key, value]) => {
-    if (value === undefined) return;
-    formData.append(`_p_${key}`, String(value));
-  });
+  formData.append('_p_data', base64Encode(dataset));
   const headers = {};
   if (appConfig.jetopAuthToken) {
     headers['X-JetopDebug-User'] = appConfig.jetopAuthToken;
@@ -235,6 +227,50 @@ const updateSectionRow = async (id, row, fields) => {
     return { ...raw, STATUS: 'Error', MESSAGE: raw.MSG || '' };
   }
   return raw;
+};
+
+export const markScanLogDeleted = async (rowId) => {
+  if (!rowId) return null;
+  const res = await updateSectionRow(appConfig.invoiceScanLogSectionId, { ID: rowId }, {
+    isdelete: true,
+    DelDate: formatDateTime(new Date())
+  });
+  console.log('[delete scanlog]', { rowId, res });
+  return res;
+};
+
+export const markScanLogDeletedByInvoice = async (fpdm, fphm) => {
+  if (!fpdm || !fphm) return null;
+  const row = await findScanLogByInvoice(fpdm, fphm);
+  if (!row) return null;
+  return updateSectionRow(appConfig.invoiceScanLogSectionId, row, { isdelete: true });
+};
+
+const insertSectionRows = async (id, rows) => postSectionDataset(id, { inserted: rows, updated: [], deleted: [] });
+
+const updateSectionRows = async (id, rows) => postSectionDataset(id, { inserted: [], updated: rows, deleted: [] });
+
+const parseJsonFromResponse = async (response) => {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return null;
+  }
+};
+
+const updateSectionRow = async (id, row, fields) => {
+  if (!id || !row || !fields) return null;
+  const rowId = getRowId(row);
+  if (!rowId) return null;
+  const updatedRow = { ID: String(rowId) };
+  Object.entries(fields).forEach(([key, value]) => {
+    if (value === undefined) return;
+    if (key === 'ID') return;
+    updatedRow[key] = String(value);
+  });
+  return updateSectionRows(id, [updatedRow]);
 };
 
 export const querySection = async (id, options = {}) => {
@@ -280,18 +316,71 @@ export const querySection = async (id, options = {}) => {
 };
 
 export const fetchScanLogs = async (pageIndex, pageSize, query) => {
-  const where = buildWhereFromQuery(query);
-  const result = await querySection('d0855c81-fd6a-7c63-5eb7-e9d5e7b92cf5', {
-    where,
-    pageIndex,
-    pageSize
-  });
-  if (!result || result.STATUS !== 'Success') {
-    return { rows: [], total: 0, where };
+  const trimmed = String(query || '').trim();
+  if (!trimmed) {
+    const where = buildWhereFromQuery(query);
+    const result = await querySection(appConfig.invoiceScanLogSectionId, {
+      where,
+      pageIndex,
+      pageSize
+    });
+    if (!result || result.STATUS !== 'Success') {
+      return { rows: [], total: 0, where };
+    }
+    const rows = Array.isArray(result.ROWS) ? result.ROWS : [];
+    const total = Number(result.TOTAL || rows.length || 0);
+    return { rows, total, where };
   }
-  const rows = Array.isArray(result.ROWS) ? result.ROWS : [];
-  const total = Number(result.TOTAL || rows.length || 0);
-  return { rows, total, where };
+  const matchInvoiceNo = (row, invoiceNo) => {
+    if (!row || !invoiceNo) return false;
+    const direct = [
+      row.FaPiaoHM,
+      row.fphm,
+      row.FPHM,
+      row.FaPiaoHm,
+      row.fphmStr,
+      row.FaPiaoHMStr
+    ];
+    const json = parseJsonValue(row.json);
+    if (json && typeof json === 'object') {
+      direct.push(json.fphm, json.number, json.id, json.FaPiaoHM, json.FaPiaoHm, json.fpHm, json.fpHM);
+    }
+    return direct.some((value) => value !== undefined && value !== null && String(value).trim() === invoiceNo);
+  };
+  const scanPageSize = Math.max(pageSize, 200);
+  const maxPages = 20;
+  let currentPage = 1;
+  let totalPages = 1;
+  const collected = [];
+  while (currentPage <= totalPages && currentPage <= maxPages) {
+    const result = await querySection(appConfig.invoiceScanLogSectionId, {
+      where: {},
+      pageIndex: currentPage,
+      pageSize: scanPageSize
+    });
+    if (!result || result.STATUS !== 'Success') {
+      break;
+    }
+    const rows = Array.isArray(result.ROWS) ? result.ROWS : [];
+    const total = Number(result.TOTAL || rows.length || 0);
+    totalPages = Math.max(1, Math.ceil(total / scanPageSize));
+    rows.forEach((row) => {
+      if (matchInvoiceNo(row, trimmed)) collected.push(row);
+    });
+    currentPage += 1;
+  }
+  const map = new Map();
+  collected.forEach((row, index) => {
+    const key = row && (row.ID || row.Id || row.id || row._id || row.sys_id);
+    const fallback = `${row && (row.FaPiaoHM || row.fphm || '')}-${row && (row.SaoMiaoSJ || '')}-${index}`;
+    const finalKey = key ? String(key) : fallback;
+    if (!map.has(finalKey)) map.set(finalKey, row);
+  });
+  const allRows = Array.from(map.values());
+  const total = allRows.length;
+  const start = Math.max(0, (pageIndex - 1) * pageSize);
+  const rows = allRows.slice(start, start + pageSize);
+  return { rows, total, where: { query: trimmed } };
 };
 
 export const fetchStats = async (where) => {
@@ -300,7 +389,7 @@ export const fetchStats = async (where) => {
   let total = 0;
   let success = 0;
   while (true) {
-    const result = await querySection('d0855c81-fd6a-7c63-5eb7-e9d5e7b92cf5', {
+    const result = await querySection(appConfig.invoiceScanLogSectionId, {
       where,
       pageIndex,
       pageSize: statsPageSize
@@ -325,32 +414,6 @@ export const fetchStats = async (where) => {
 
 export const verifyInvoice = async (file) => {
   const { base64, dataUrl } = await readFileAsBase64(file);
-  let useBackend = true;
-  let backendJson = null;
-  try {
-    const backendResponse = await fetch(appConfig.scanServiceUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        pdfBase64: base64
-      })
-    });
-    if (backendResponse.ok) {
-      backendJson = await parseJsonFromResponse(backendResponse);
-      if (!backendJson) {
-        useBackend = false;
-      }
-    } else {
-      useBackend = false;
-    }
-  } catch (e) {
-    useBackend = false;
-  }
-  if (useBackend && backendJson) {
-    return { json: backendJson, dataUrl, isImage: file.type.startsWith('image/') };
-  }
   const body = new URLSearchParams();
   body.append('pdfBase64', base64);
   const response = await fetch(appConfig.invoiceVerifyUrl, {
@@ -361,6 +424,7 @@ export const verifyInvoice = async (file) => {
     body
   });
   const json = await parseJsonFromResponse(response);
+  console.log('[verifyInvoice response]', json);
   return { json, dataUrl, isImage: file.type.startsWith('image/') };
 };
 
@@ -387,26 +451,139 @@ export const uploadFileToServer = async (file) => {
   return realRes.url;
 };
 
+const buildDetailRow = (payload, now) => {
+  const fpdm = payload && (payload.fpdm || payload.code || payload.fpCode || '');
+  const fphm = payload && (payload.fphm || payload.number || payload.id || '');
+  const kprq = normalizeDateTime(payload && (payload.kprq || payload.kpsj || payload.date || payload.kprqStr || ''));
+  const gfmc = payload && (payload.gfMc || payload.gfmc || payload.buyerName || payload.company || '');
+  const xfmc = payload && (payload.xfMc || payload.xfmc || payload.sellerName || '');
+  const je = payload && (payload.sumamount || payload.goodsamount || payload.taxamount || payload.amount || '');
+  return {
+    fpdm: fpdm || '',
+    fphm: fphm || '',
+    kprq: kprq || '',
+    gfmc: gfmc || '',
+    xfmc: xfmc || '',
+    je: je || '',
+    id: createGuid(),
+    dateBegin: now
+  };
+};
+
+const buildGoodsRows = (payload, fpdm, fphm, now) => {
+  const goods = payload && Array.isArray(payload.goodsData) ? payload.goodsData : payload && Array.isArray(payload.goods) ? payload.goods : [];
+  return goods.map((item) => ({
+    fpdm: fpdm || '',
+    fphm: fphm || '',
+    MingCheng: item.name || item.MingCheng || item.mc || '',
+    GuiGe: item.spec || item.GuiGe || item.gg || '',
+    DanWei: item.unit || item.DanWei || item.dw || '',
+    ShuLiang: toNullableNumber(item.amount ?? item.ShuLiang),
+    DanJia: toNullableNumber(item.priceUnit ?? item.DanJia),
+    JinE: toNullableNumber(item.priceSum ?? item.JinE),
+    ShuiLv: toNullableNumber(item.taxRate ?? item.ShuiLv),
+    ShuiE: toNullableNumber(item.taxSum ?? item.ShuiE),
+    id: createGuid(),
+    dateBegin: now
+  }));
+};
+
+const buildScanLogRow = (payload, fpdm, fphm, success, fileUrl, md5Value, now, gonghao) => ({
+  GongHao: gonghao || null,
+  QRCodeStr: md5Value || '',
+  FaPiaoDM: fpdm || '',
+  FaPiaoHM: fphm || '',
+  json: JSON.stringify(payload || {}),
+  Url: fileUrl || '',
+  success: Boolean(success),
+  id: createGuid(),
+  SaoMiaoSJ: now
+});
+
+const persistInvoiceAfterVerify = async ({ payload, raw, success, fileUrl, md5Value }) => {
+  const now = formatDateTime(new Date());
+  const detailRow = buildDetailRow(payload, now);
+  const tasks = [];
+  const meta = {
+    fpdm: detailRow.fpdm,
+    fphm: detailRow.fphm,
+    md5: md5Value || '',
+    url: fileUrl || ''
+  };
+  if (appConfig.invoiceDetailSectionId) {
+    tasks.push(
+      insertSectionRows(appConfig.invoiceDetailSectionId, [detailRow]).then((res) => ({
+        scope: 'detail',
+        sectionId: appConfig.invoiceDetailSectionId,
+        res
+      }))
+    );
+  }
+  if (appConfig.invoiceGoodsSectionId) {
+    const goodsRows = buildGoodsRows(payload, detailRow.fpdm, detailRow.fphm, now);
+    if (goodsRows.length) {
+      tasks.push(
+        insertSectionRows(appConfig.invoiceGoodsSectionId, goodsRows).then((res) => ({
+          scope: 'goods',
+          sectionId: appConfig.invoiceGoodsSectionId,
+          count: goodsRows.length,
+          res
+        }))
+      );
+    }
+  }
+  if (appConfig.invoiceScanLogSectionId) {
+    const gonghao = getCurrentGongHao();
+    const logRow = buildScanLogRow(payload, detailRow.fpdm, detailRow.fphm, success, fileUrl, md5Value, now, gonghao);
+    tasks.push(
+      (async () => {
+        const existed = await findCachedByMd5AndUser(md5Value, gonghao);
+        if (existed) {
+          const updateFields = {
+            GongHao: gonghao || null,
+            SaoMiaoSJ: now,
+            success: Boolean(success),
+            json: JSON.stringify(payload || {}),
+            QRCodeStr: md5Value || logRow.QRCodeStr
+          };
+          if (fileUrl) updateFields.Url = fileUrl;
+          const res = await updateSectionRow(appConfig.invoiceScanLogSectionId, existed.row || existed, updateFields);
+          return { scope: 'scanLog', sectionId: appConfig.invoiceScanLogSectionId, mode: 'update', res };
+        }
+        const res = await insertSectionRows(appConfig.invoiceScanLogSectionId, [logRow]);
+        return { scope: 'scanLog', sectionId: appConfig.invoiceScanLogSectionId, mode: 'insert', res };
+      })()
+    );
+  }
+  if (!tasks.length) return null;
+  const results = await Promise.all(tasks);
+  console.log('[persist invoice]', meta, results);
+  return results;
+};
+
 export const verifyInvoiceWithUpload = async (file, options = {}) => {
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
   const shouldUpload = options.upload !== false && isPdf;
   let fileUrl = '';
   const md5Value = await computeMd5(file);
-  const cached = await findCachedByMd5(md5Value);
+  const cached = await findCachedByMd5AndUser(md5Value, getCurrentGongHao());
   if (cached) {
+    if (typeof window !== 'undefined' && typeof window.notifyInvoiceCached === 'function') {
+      window.notifyInvoiceCached();
+    }
     const { dataUrl } = await readFileAsBase64(file);
     const cachedJson = cached.json;
     console.log('cached invoice json', cachedJson);
     const now = formatDateTime(new Date());
     try {
-      await updateSectionRow('d0855c81-fd6a-7c63-5eb7-e9d5e7b92cf5', cached.row, {
+      await updateSectionRow(appConfig.invoiceScanLogSectionId, cached.row, {
         SaoMiaoSJ: now
       });
     } catch (e) {
       console.warn('update scan time failed', e);
     }
-    const success = cachedJson && cachedJson.success === true;
-    const payload = cachedJson && cachedJson.data ? cachedJson.data : {};
+    const success = cached.row && (cached.row.success === 1 || cached.row.success === true || String(cached.row.success).toLowerCase() === 'true');
+    const payload = cachedJson && cachedJson.data ? cachedJson.data : cachedJson || {};
     const data = normalizeInvoiceData(payload, file);
     return {
       success,
@@ -429,9 +606,32 @@ export const verifyInvoiceWithUpload = async (file, options = {}) => {
     verifyResult = await verifyInvoice(file);
   }
   const { json, dataUrl, isImage } = verifyResult;
+  console.log('[verify result]', json);
   const success = json && json.success === true;
   const payload = json && json.data ? json.data : {};
   const data = normalizeInvoiceData(payload, file);
+  try {
+    const allow = success ? await isInvoiceAllowedForCompany(payload) : false;
+    console.log('[company allow check]', {
+      nsrsbh: trimText(payload && (payload.gfNsrsbh || payload.gfnsrsbh || payload.gfsh || '')),
+      name: trimText(payload && (payload.gfMc || payload.gfmc || payload.company || '')),
+      allow
+    });
+    if (allow) {
+      const persistResult = await persistInvoiceAfterVerify({
+        payload,
+        raw: json || {},
+        success,
+        fileUrl,
+        md5Value
+      });
+      console.log('[persist result]', persistResult);
+    } else {
+      console.warn('[persist skipped] 非公司发票或验真失败');
+    }
+  } catch (e) {
+    console.warn('[persist invoice failed]', e);
+  }
   return {
     success,
     data,

@@ -493,9 +493,78 @@ body {
     color: var(--text-main);
 }
 
+.btn-view + .btn-view {
+    margin-left: 8px;
+}
+
 .btn-view:hover {
     border-color: var(--primary);
     color: var(--primary);
+}
+
+.btn-view.btn-delete {
+    border-color: rgba(239, 68, 68, 0.35);
+    color: var(--danger);
+    background: var(--danger-light);
+}
+
+.btn-view.btn-delete:hover {
+    border-color: var(--danger);
+    color: #fff;
+    background: var(--danger);
+}
+
+.btn-view.btn-delete:disabled {
+    border-color: var(--border-color);
+    color: var(--text-light);
+    background: #fff;
+    cursor: not-allowed;
+}
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 200;
+}
+
+.modal-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.modal {
+    width: 360px;
+    max-width: 90vw;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+    padding: 20px 20px 16px;
+}
+
+.modal-header {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.modal-body {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.modal-actions {
+    margin-top: 16px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
 }
 
 /* Animations & Loading States */
@@ -670,7 +739,9 @@ body {
     padding: 20px;
     margin-bottom: 24px;
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
 }
 
 .invoice-preview {
@@ -684,6 +755,60 @@ body {
     align-items: center;
     justify-content: center;
     overflow: hidden;
+}
+
+.preview-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    width: 100%;
+    z-index: 12;
+}
+
+.btn-action {
+    flex: 0 0 160px;
+    height: 36px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: white;
+    color: var(--text-main);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.btn-action.btn-primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #ffffff;
+    box-shadow: 0 6px 14px rgba(37, 99, 235, 0.18);
+}
+
+.btn-action.btn-primary:hover {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+    color: #ffffff;
+}
+
+.btn-action.btn-secondary {
+    background: #f8fafc;
+    border-color: #cbd5f5;
+    color: #4338ca;
+}
+
+.btn-action.btn-secondary:hover {
+    background: #eef2ff;
+    border-color: #a5b4fc;
+    color: #312e81;
+}
+
+.btn-action.disabled {
+    pointer-events: none;
+    opacity: 0.5;
 }
 
 .preview-img {

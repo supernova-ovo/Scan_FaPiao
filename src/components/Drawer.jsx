@@ -5,6 +5,10 @@ const Drawer = ({ record, onClose }) => {
   const preview = record && record.preview ? record.preview : {};
   const showImage = preview.isImage && preview.dataUrl;
   const fileUrl = preview.fileUrl || '';
+  const normalizedFileUrl = String(fileUrl || '').trim();
+  const isValidFileUrl = normalizedFileUrl !== '' && normalizedFileUrl !== '/' && normalizedFileUrl !== '#';
+  const hasFileUrl = Boolean(isValidFileUrl);
+  const previewUrl = preview.dataUrl || (isValidFileUrl ? normalizedFileUrl : '');
   const success = record && record.status === 'success';
   const stampText = success ? '查验通过' : '查验失败';
   const resultTitle = success ? '查验通过' : '查验失败';
@@ -26,8 +30,8 @@ const Drawer = ({ record, onClose }) => {
             <div className="invoice-preview">
               {showImage ? (
                 <img className="preview-img" src={preview.dataUrl} alt="preview" />
-              ) : fileUrl ? (
-                <iframe className="preview-iframe" src={fileUrl} title="preview" />
+              ) : isValidFileUrl ? (
+                <iframe className="preview-iframe" src={normalizedFileUrl} title="preview" />
               ) : (
                 <div id="previewPlaceholder">当前文件暂无预览</div>
               )}
@@ -39,6 +43,14 @@ const Drawer = ({ record, onClose }) => {
                   <span>{stampText}</span>
                 </div>
               </div>
+            </div>
+            <div className="preview-actions">
+              <a className={`btn-action btn-primary${previewUrl ? '' : ' disabled'}`} href={previewUrl || '#'} target="_blank" rel="noreferrer">
+                查看文件
+              </a>
+              <a className={`btn-action btn-secondary${hasFileUrl ? '' : ' disabled'}`} href={isValidFileUrl ? normalizedFileUrl : '#'} download>
+                下载源文件
+              </a>
             </div>
           </div>
           <div className="invoice-meta">
