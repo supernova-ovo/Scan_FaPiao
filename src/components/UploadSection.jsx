@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { AiOutlineCloudUpload } from 'react-icons/ai';
 
-const UploadSection = ({ onFiles }) => {
+const UploadSection = ({ onFiles, isCompact }) => {
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -13,7 +13,7 @@ const UploadSection = ({ onFiles }) => {
 
   return (
     <section
-      className={`upload-section${dragOver ? ' drag-over' : ''}`}
+      className={`upload-section${dragOver ? ' drag-over' : ''}${isCompact ? ' compact' : ''}`}
       onClick={() => inputRef.current && inputRef.current.click()}
       onDragOver={(e) => {
         e.preventDefault();
@@ -39,10 +39,12 @@ const UploadSection = ({ onFiles }) => {
       />
       <div className="upload-content">
         <div className="upload-icon-wrapper">
-          <AiOutlineCloudUpload size={28} />
+          <AiOutlineCloudUpload size={isCompact ? 20 : 28} />
         </div>
-        <h3>拖拽或点击上传</h3>
-        <p>支持 PDF、OFD、JPG、PNG</p>
+        <div className="text-content">
+          <h3>{isCompact ? '点击或拖拽上传发票' : '拖拽或点击上传'}</h3>
+          {!isCompact && <p>支持 PDF、OFD、JPG、PNG</p>}
+        </div>
       </div>
     </section>
   );

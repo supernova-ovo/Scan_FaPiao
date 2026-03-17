@@ -4,7 +4,7 @@ import StatsGrid from './components/StatsGrid.jsx';
 import UploadSection from './components/UploadSection.jsx';
 import InvoiceTable from './components/InvoiceTable.jsx';
 import Drawer from './components/Drawer.jsx';
-import { fetchScanLogs, fetchStats, markScanLogDeleted, verifyInvoiceWithUpload } from './services/api.js';
+import { fetchScanLogs, fetchStats, markScanLogDeleted, markScanLogBatchDeleted, verifyInvoiceWithUpload } from './services/api.js';
 import { buildWhereFromQuery, createProcessingRecord, mapLogToRecord } from './utils/invoice.js';
 
 const pageSize = 10;
@@ -29,6 +29,9 @@ const App = () => {
   const [selected, setSelected] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [showBatchDelete, setShowBatchDelete] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState([]);
+  const [toastMsg, setToastMsg] = useState(null);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / pageSize)), [totalCount]);
 
@@ -61,6 +64,7 @@ const App = () => {
         return Array.from(map.values());
       })();
       setRecords(deduped);
+      setSelectedKeys([]); // Clear selection on load
       setTotalCount(total);
       if (fetchedStats) {
         const fail = Math.max(fetchedStats.total - fetchedStats.success, 0);
@@ -96,6 +100,7 @@ const App = () => {
       }
       if (selected && selected.key === pendingDelete.key) setSelected(null);
       setRecords((prev) => prev.filter((item) => item.key !== pendingDelete.key));
+      setSelectedKeys((prev) => prev.filter((k) => k !== pendingDelete.key));
       setPendingDelete(null);
       loadLogs(page, query);
     } catch (e) {
@@ -122,6 +127,13 @@ const App = () => {
   useEffect(() => {
     window.verifyInvoiceWithUpload = verifyInvoiceWithUpload;
     window.notifyInvoiceCached = () => setCachedNotice(true);
+    
+    const onShowToast = (e) => {
+      setToastMsg(e.detail);
+      setTimeout(() => setToastMsg(null), 3000);
+    };
+    window.addEventListener('show-toast', onShowToast);
+    return () => window.removeEventListener('show-toast', onShowToast);
   }, []);
 
   const handleFiles = async (files) => {
@@ -149,14 +161,82 @@ const App = () => {
         );
       }
     }
+    // 处理完成后，刷新一次列表和统计数据，确保计数自动增加
+    loadLogs(page, searchQuery);
   };
+
+  const handleSelectRow = useCallback((key, isSelected) => {
+    setSelectedKeys((prev) =>
+      isSelected ? [...prev, key] : prev.filter((k) => k !== key)
+    );
+  }, []);
+
+  const handleSelectAll = useCallback((isSelected) => {
+    if (isSelected) {
+      setSelectedKeys(records.filter(r => r.status !== 'processing').map(r => r.key));
+    } else {
+      setSelectedKeys([]);
+    }
+  }, [records]);
+
+  const handleBatchDelete = useCallback(() => {
+    if (!selectedKeys.length) return;
+    setShowBatchDelete(true);
+  }, [selectedKeys.length]);
+
+  const confirmBatchDelete = useCallback(async () => {
+    if (!selectedKeys.length) return;
+    try {
+      setError('');
+      setDeleteLoading(true);
+      const res = await markScanLogBatchDeleted(selectedKeys);
+      if (!res || res.STATUS === 'Error') {
+        setError('批量删除失败');
+        return;
+      }
+      setRecords((prev) => prev.filter((item) => !selectedKeys.includes(item.key)));
+      setSelectedKeys([]);
+      setShowBatchDelete(false);
+      setToastMsg('批量删除执行完成');
+      loadLogs(page, searchQuery);
+    } catch (e) {
+      setError('批量删除过程中发生错误');
+      console.warn('batch delete failed', e);
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [selectedKeys, page, searchQuery, loadLogs]);
+
+  const cancelBatchDelete = useCallback(() => {
+    if (deleteLoading) return;
+    setShowBatchDelete(false);
+  }, [deleteLoading]);
+
+  const handleBatchExport = useCallback(() => {
+    if (!selectedKeys.length) return;
+    
+    // 获取选中项的详细数据（用于导出）
+    const selectedRecords = records.filter(r => selectedKeys.includes(r.key));
+    const rowIds = selectedRecords.map(r => r.rowId).filter(Boolean);
+    
+    if (rowIds.length === 0) {
+      setToastMsg('选中项中没有可导出的有效记录');
+      return;
+    }
+
+    setToastMsg(`正在请求导出 ${rowIds.length} 项发票数据...`);
+    
+    // 模拟或调用后端导出接口
+    console.log('[Batch Export] Selected Row IDs:', rowIds);
+    // window.location.href = `${appConfig.exportUrl}?ids=${rowIds.join(',')}`;
+  }, [selectedKeys, records]);
 
   return (
     <div className="app-container">
       <Header />
       <main>
         <StatsGrid total={stats.total} success={stats.success} fail={stats.fail} />
-        <UploadSection onFiles={handleFiles} />
+        <UploadSection onFiles={handleFiles} isCompact={records.length > 0} />
         {error ? <div className="error-hint">{error}</div> : null}
         <InvoiceTable
           records={records}
@@ -181,6 +261,11 @@ const App = () => {
           onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
           onView={(record) => setSelected(record)}
           onDelete={handleDelete}
+          selectedKeys={selectedKeys}
+          onSelectRow={handleSelectRow}
+          onSelectAll={handleSelectAll}
+          onBatchDelete={handleBatchDelete}
+          onBatchExport={handleBatchExport}
         />
       </main>
       <Drawer record={selected} onClose={() => setSelected(null)} />
@@ -202,6 +287,26 @@ const App = () => {
           </div>
         </div>
       </div>
+      <div className={`modal-overlay${showBatchDelete ? ' active' : ''}`} onClick={(e) => {
+        if (e.target === e.currentTarget) cancelBatchDelete();
+      }}>
+        <div className="modal">
+          <div className="modal-header">确认批量删除</div>
+          <div className="modal-body">
+            确认批量删除选中的 {selectedKeys.length} 项发票记录吗？<br />
+            注意：此操作不可撤销，请谨慎操作。
+          </div>
+          <div className="modal-actions">
+            <button className="btn-view" onClick={cancelBatchDelete} disabled={deleteLoading}>
+              取消
+            </button>
+            <button className="btn-view btn-delete" onClick={confirmBatchDelete} disabled={deleteLoading}>
+              确认批量删除
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className={`modal-overlay${cachedNotice ? ' active' : ''}`} onClick={(e) => {
         if (e.target === e.currentTarget) closeCachedNotice();
       }}>
@@ -215,6 +320,12 @@ const App = () => {
           </div>
         </div>
       </div>
+      
+      {toastMsg && (
+        <div className="toast-message">
+          <span>{toastMsg}</span>
+        </div>
+      )}
     </div>
   );
 };

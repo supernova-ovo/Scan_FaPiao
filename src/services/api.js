@@ -239,6 +239,19 @@ export const markScanLogDeleted = async (rowId) => {
   return res;
 };
 
+export const markScanLogBatchDeleted = async (rowIds) => {
+  if (!rowIds || !rowIds.length) return null;
+  const now = formatDateTime(new Date());
+  const updatedRows = rowIds.map((id) => ({
+    ID: String(id),
+    isdelete: true,
+    DelDate: now
+  }));
+  const res = await updateSectionRows(appConfig.invoiceScanLogSectionId, updatedRows);
+  console.log('[batch delete scanlog]', { count: rowIds.length, res });
+  return res;
+};
+
 export const markScanLogDeletedByInvoice = async (fpdm, fphm) => {
   if (!fpdm || !fphm) return null;
   const row = await findScanLogByInvoice(fpdm, fphm);
@@ -268,7 +281,7 @@ const updateSectionRow = async (id, row, fields) => {
   Object.entries(fields).forEach(([key, value]) => {
     if (value === undefined) return;
     if (key === 'ID') return;
-    updatedRow[key] = String(value);
+    updatedRow[key] = (typeof value === 'boolean' || typeof value === 'number') ? value : String(value);
   });
   return updateSectionRows(id, [updatedRow]);
 };
@@ -428,6 +441,122 @@ export const verifyInvoice = async (file) => {
   return { json, dataUrl, isImage: file.type.startsWith('image/') };
 };
 
+const tpcsAsync = async (svrName, data) => {
+  const processedData = typeof data === 'string' ? data : JSON.stringify(data);
+  const response = await fetch(`https://lolapi.tepc.cn/tpcs/${svrName}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: processedData
+  });
+  if (!response.ok) {
+    throw new Error(`TPCS request failed: ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const verifyImageInvoice = async (file) => {
+  const { base64, dataUrl } = await readFileAsBase64(file);
+  
+  // 1. OCR识别
+  const ocrRes = await tpcsAsync('iocrfinance', {
+    image: base64,
+    url: "",
+    pdf_file: "",
+    templateSign: "mixed_receipt",
+    classifierId: ""
+  });
+  
+  if (!ocrRes.IsSuccess) {
+    return { json: { success: false, message: ocrRes.Msg || 'OCR识别失败' }, dataUrl, isImage: true };
+  }
+  
+  const returnData = ocrRes.data || {};
+  let obj = {};
+  if (returnData.data && returnData.data.ret) {
+    returnData.data.ret.forEach(item => {
+      if (item.ret) {
+        item.ret.forEach(retItem => {
+          obj[retItem.word_name] = retItem.word;
+        });
+      }
+    });
+  }
+  
+  let check_code = obj.CheckCode || '';
+  if (check_code.length > 6) {
+    check_code = check_code.substring(check_code.length - 6);
+  }
+  
+  if (!obj.InvoiceNum) {
+     return { json: { success: false, message: '未识别到有效发票信息' }, dataUrl, isImage: true };
+  }
+
+  // 还原旧系统的 creatStr (QR Code String) 逻辑
+  const getInvoiceType = (fpdm) => {
+    if (!fpdm) return "";
+    const someCode = ["144031539110", "131001570151", "133011501118", "111001571071"];
+    if (someCode.includes(fpdm)) return "10";
+    if (fpdm.length === 12) {
+        if (fpdm.charAt(0) === '0' && fpdm.substring(10, 12) === '11') return "10";
+        if (fpdm.charAt(0) === '0' && fpdm.substring(10, 12) === '12') return "14";
+        if (fpdm.charAt(0) === '0' && (fpdm.substring(10, 12) === '04' || fpdm.substring(10, 12) === '05')) return "04";
+        if (fpdm.charAt(0) === '0' && (fpdm.substring(10, 12) === '06' || fpdm.substring(10, 12) === '07')) return "11";
+        if (fpdm.charAt(0) === '0' && fpdm.substring(10, 12) === '17') return "15";
+        if (fpdm.charAt(0) !== '0' && fpdm.substring(7, 8) === '2') return "03";
+    }
+    if (fpdm.length === 10) {
+        const b = fpdm.substring(7, 8);
+        if (b === '1' || b === '5') return "01";
+        if (b === '6' || b === '3') return "04";
+        if (b === '7' || b === '2') return "02";
+    }
+    return "";
+  };
+
+  const invoiceType = getInvoiceType(obj.InvoiceCode);
+  const formattedDate = obj.InvoiceDate ? obj.InvoiceDate.replace(/-/g, '') : '';
+  const qrCodeStr = `01,${invoiceType},${obj.InvoiceCode},${obj.InvoiceNum},${obj.TotalAmount},${formattedDate},${check_code},,`;
+
+  const key = {
+    fpdm: obj.InvoiceCode || "",
+    fphm: obj.InvoiceNum || "",
+    kprq: obj.InvoiceDate || "",
+    noTaxAmount: obj.TotalAmount || "",
+    checkCode: check_code,
+    jshj: obj.AmountInFiguers || "",
+    qrCodeStr,
+  };
+  
+  // 2. 验真请求
+  const verifyRes = await tpcsAsync('invoicequery', key);
+  
+  if (!verifyRes.IsSuccess) {
+     return { json: { success: false, message: verifyRes.Msg || '验真失败' }, dataUrl, isImage: true };
+  }
+  
+  let resData = verifyRes.data && verifyRes.data.data ? verifyRes.data.data : {};
+  
+  const json = {
+    success: true,
+    data: {
+      ...resData,
+      fpdm: resData.fpdm || key.fpdm,
+      fphm: resData.fphm || key.fphm,
+      kprq: resData.kprq || key.kprq,
+      sumamount: resData.sumamount || key.jshj,
+      amount: resData.sumamount || key.jshj,
+      goodsamount: resData.noTaxAmount || key.noTaxAmount,
+      checkCode: key.checkCode,
+      sellerName: resData.xfmc || resData.xfMc || "",
+      buyerName: resData.gfmc || resData.gfMc || "",
+      qrCodeStr: key.qrCodeStr, // 传递给持久化层
+    }
+  };
+  return { json, dataUrl, isImage: true };
+};
+
 export const uploadFileToServer = async (file) => {
   const formData = new FormData();
   formData.append('imgFile', file);
@@ -563,7 +692,8 @@ const persistInvoiceAfterVerify = async ({ payload, raw, success, fileUrl, md5Va
 
 export const verifyInvoiceWithUpload = async (file, options = {}) => {
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-  const shouldUpload = options.upload !== false && isPdf;
+  const fileIsImage = file.type.startsWith('image/');
+  const shouldUpload = options.upload !== false && (isPdf || fileIsImage);
   let fileUrl = '';
   const md5Value = await computeMd5(file);
   const cached = await findCachedByMd5AndUser(md5Value, getCurrentGongHao());
@@ -599,11 +729,12 @@ export const verifyInvoiceWithUpload = async (file, options = {}) => {
   }
   let verifyResult;
   if (shouldUpload) {
-    const [vResult, url] = await Promise.all([verifyInvoice(file), uploadFileToServer(file)]);
+    const apiCall = file.type.startsWith('image/') ? verifyImageInvoice(file) : verifyInvoice(file);
+    const [vResult, url] = await Promise.all([apiCall, uploadFileToServer(file)]);
     verifyResult = vResult;
     fileUrl = url;
   } else {
-    verifyResult = await verifyInvoice(file);
+    verifyResult = file.type.startsWith('image/') ? await verifyImageInvoice(file) : await verifyInvoice(file);
   }
   const { json, dataUrl, isImage } = verifyResult;
   console.log('[verify result]', json);
@@ -623,7 +754,7 @@ export const verifyInvoiceWithUpload = async (file, options = {}) => {
         raw: json || {},
         success,
         fileUrl,
-        md5Value
+        md5Value: payload.qrCodeStr || md5Value // 图片优先使用生成的qrCodeStr作为唯一标识
       });
       console.log('[persist result]', persistResult);
     } else {

@@ -1,21 +1,19 @@
-import { AiFillFileImage, AiFillFilePdf, AiFillFileText } from 'react-icons/ai';
+import { AiFillFileImage, AiFillFilePdf, AiFillFileText, AiOutlineCopy } from 'react-icons/ai';
 
 const ProcessingRow = () => (
   <tr className="scanning-row">
     <td>
-      <div className="thumb-loading">
-        <div className="skeleton-img"></div>
-        <div className="scan-line"></div>
-      </div>
+      <input type="checkbox" disabled />
     </td>
     <td>
       <div className="skeleton-text w-120"></div>
       <div className="skeleton-text w-80 mt-1"></div>
     </td>
-    <td>
-      <div className="skeleton-tag w-60"></div>
-      <div className="skeleton-tag w-80 ml-1"></div>
-    </td>
+    <td><div className="skeleton-text w-80"></div></td>
+    <td><div className="skeleton-text w-80"></div></td>
+    <td><div className="skeleton-tag w-60"></div></td>
+    <td><div className="skeleton-text w-120"></div></td>
+    <td><div className="skeleton-tag w-60"></div></td>
     <td>
       <span className="status-badge processing">
         <span className="pulse-dot"></span>
@@ -39,42 +37,48 @@ const getFileExt = (record) => {
 
 const isImageExt = (ext) => ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext);
 
-const InvoiceRow = ({ record, onView, onDelete }) => {
+const getFileIcon = (ext) => {
+  if (ext === 'pdf') return <AiFillFilePdf className="type-icon pdf" title="PDF" />;
+  if (ext === 'ofd') return <AiFillFileText className="type-icon ofd" title="OFD" />;
+  return <AiFillFileImage className="type-icon img" title="图片" />;
+};
+
+const InvoiceRow = ({ record, onView, onDelete, isSelected, onSelect, onCopy }) => {
   const ext = getFileExt(record);
-  const preview = record.preview || {};
-  const canShowImage = preview.isImage || isImageExt(ext);
-  const thumbUrl = preview.dataUrl || (canShowImage ? preview.fileUrl : '');
   const isSuccess = record.status === 'success';
   const canDelete = Boolean(record.rowId);
   return (
-    <tr>
+    <tr className={isSelected ? 'selected-row' : ''}>
       <td>
-        {thumbUrl ? (
-          <div className="thumb-preview thumb-image" style={{ backgroundImage: `url('${thumbUrl}')` }}></div>
-        ) : (
-          <div className={`thumb-preview thumb-file ${ext === 'pdf' ? 'thumb-pdf' : ext === 'ofd' ? 'thumb-ofd' : 'thumb-image-icon'}`}>
-            {ext === 'pdf' ? (
-              <>
-                <AiFillFilePdf />
-                <span className="thumb-label">PDF</span>
-              </>
-            ) : ext === 'ofd' ? (
-              <>
-                <AiFillFileText />
-                <span className="thumb-label">OFD</span>
-              </>
-            ) : (
-              <>
-                <AiFillFileImage />
-                <span className="thumb-label">IMG</span>
-              </>
-            )}
-          </div>
-        )}
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={(e) => onSelect(record.key, e.target.checked)}
+          disabled={record.status === 'processing'}
+        />
       </td>
       <td>
-        <span className="invoice-id">{record.code}</span>
-        <span className="invoice-code">{record.id}</span>
+        <div className="invoice-info-with-icon">
+          {getFileIcon(ext)}
+          <div className="invoice-numbers">
+            <span className="invoice-id">
+              {record.code}
+              {record.code && (
+                <button className="copy-btn" onClick={() => onCopy(record.code)} title="复制发票代码">
+                  <AiOutlineCopy />
+                </button>
+              )}
+            </span>
+            <span className="invoice-code">
+              {record.id}
+              {record.id && (
+                <button className="copy-btn" onClick={() => onCopy(record.id)} title="复制发票号码">
+                  <AiOutlineCopy />
+                </button>
+              )}
+            </span>
+          </div>
+        </div>
       </td>
       <td>
         <span className="tag tag-date">{record.uploadTime}</span>
@@ -83,7 +87,7 @@ const InvoiceRow = ({ record, onView, onDelete }) => {
         <span className="tag tag-date">{record.invoiceDate}</span>
       </td>
       <td>
-        <span className="tag tag-amount">{record.amount}</span>
+        <span className="tag tag-amount font-mono font-bold amount-text">{record.amount}</span>
       </td>
       <td>
         <span className="tag tag-company">{record.seller}</span>
@@ -127,9 +131,26 @@ const InvoiceTable = ({
   onPrev,
   onNext,
   onView,
-  onDelete
+  onDelete,
+  selectedKeys,
+  onSelectRow,
+  onSelectAll,
+  onBatchDelete,
+  onBatchExport
 }) => {
   const trimmedQuery = String(displayQuery || '').trim();
+  const selectableRecords = records.filter(r => r.status !== 'processing');
+  const allSelected = selectableRecords.length > 0 && selectableRecords.every(r => selectedKeys.includes(r.key));
+  const someSelected = selectedKeys.length > 0;
+
+  const handleCopy = (text) => {
+    navigator.clipboard.writeText(text).then(() => {
+      // 简单派发自定义事件显示 Toast (或者传入 onCopySuccess)
+      const event = new CustomEvent('show-toast', { detail: '复制成功：' + text });
+      window.dispatchEvent(event);
+    }).catch(err => console.error('复制失败', err));
+  };
+
   return (
     <section className="table-section">
       <div className="section-header">
@@ -138,6 +159,21 @@ const InvoiceTable = ({
           {trimmedQuery ? <span className="tag tag-date">查询：{trimmedQuery}</span> : null}
         </h2>
         <div className="actions">
+          <div className="batch-actions">
+            {someSelected && (
+              <>
+                <span className="selected-count">已选 {selectedKeys.length} 项</span>
+                <button 
+                  className="btn-text btn-batch-export" 
+                  onClick={onBatchExport}
+                >
+                  导出选中项
+                </button>
+                <button className="btn-text btn-batch-delete text-danger" onClick={onBatchDelete}>批量删除</button>
+                <div className="divider"></div>
+              </>
+            )}
+          </div>
           <div className="search-group">
             <input
               type="text"
@@ -155,14 +191,20 @@ const InvoiceTable = ({
               清空
             </button>
           </div>
-          <button className="btn-text">导出记录</button>
         </div>
       </div>
       <div className="table-container">
         <table className="data-table">
           <thead>
             <tr>
-              <th width="80">预览</th>
+              <th width="40">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={(e) => onSelectAll(e.target.checked)}
+                  disabled={selectableRecords.length === 0}
+                />
+              </th>
               <th>发票代码/号码</th>
               <th>上传时间</th>
               <th>开票日期</th>
@@ -183,7 +225,15 @@ const InvoiceTable = ({
                 record.status === 'processing' ? (
                   <ProcessingRow key={record.key} />
                 ) : (
-                  <InvoiceRow key={record.key || `${record.code}-${record.id}-${record.uploadTime}`} record={record} onView={onView} onDelete={onDelete} />
+                  <InvoiceRow
+                    key={record.key || `${record.code}-${record.id}-${record.uploadTime}`}
+                    record={record}
+                    onView={onView}
+                    onDelete={onDelete}
+                    isSelected={selectedKeys.includes(record.key)}
+                    onSelect={onSelectRow}
+                    onCopy={handleCopy}
+                  />
                 )
               )
             )}
