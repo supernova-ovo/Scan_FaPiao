@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { AiFillFileImage, AiFillFilePdf, AiFillFileText, AiOutlineCopy } from 'react-icons/ai';
 
 const ProcessingRow = () => (
@@ -21,6 +22,32 @@ const ProcessingRow = () => (
       </span>
     </td>
     <td>-</td>
+  </tr>
+);
+
+const SkeletonRow = () => (
+  <tr className="skeleton-row">
+    <td>
+      <input type="checkbox" disabled />
+    </td>
+    <td>
+      <div className="skeleton-icon-wrapper">
+         <div className="skeleton-circle"></div>
+         <div>
+            <div className="skeleton-text w-120"></div>
+            <div className="skeleton-text w-80 mt-1"></div>
+         </div>
+      </div>
+    </td>
+    <td><div className="skeleton-text w-80"></div></td>
+    <td><div className="skeleton-text w-80"></div></td>
+    <td><div className="skeleton-tag w-60"></div></td>
+    <td><div className="skeleton-text w-120"></div></td>
+    <td><div className="skeleton-tag w-60"></div></td>
+    <td><div className="skeleton-tag w-80 badge-skeleton"></div></td>
+    <td>
+      <div className="skeleton-text w-60"></div>
+    </td>
   </tr>
 );
 
@@ -121,6 +148,7 @@ const InvoiceRow = ({ record, onView, onDelete, isSelected, onSelect, onCopy }) 
 
 const InvoiceTable = ({
   records,
+  isLoading,
   query,
   displayQuery,
   onQueryChange,
@@ -143,6 +171,17 @@ const InvoiceTable = ({
   const allSelected = selectableRecords.length > 0 && selectableRecords.every(r => selectedKeys.includes(r.key));
   const someSelected = selectedKeys.length > 0;
 
+  // Calculate total amount for selected invoices
+  const selectedTotal = useMemo(() => {
+    if (!someSelected) return 0;
+    return records
+      .filter(r => selectedKeys.includes(r.key))
+      .reduce((sum, r) => {
+        const amt = parseFloat(String(r.amount).replace(/[^0-9.-]+/g, ''));
+        return sum + (isNaN(amt) ? 0 : amt);
+      }, 0);
+  }, [records, selectedKeys, someSelected]);
+
   const handleCopy = (text) => {
     navigator.clipboard.writeText(text).then(() => {
       // 简单派发自定义事件显示 Toast (或者传入 onCopySuccess)
@@ -159,21 +198,6 @@ const InvoiceTable = ({
           {trimmedQuery ? <span className="tag tag-date">查询：{trimmedQuery}</span> : null}
         </h2>
         <div className="actions">
-          <div className="batch-actions">
-            {someSelected && (
-              <>
-                <span className="selected-count">已选 {selectedKeys.length} 项</span>
-                <button 
-                  className="btn-text btn-batch-export" 
-                  onClick={onBatchExport}
-                >
-                  导出选中项
-                </button>
-                <button className="btn-text btn-batch-delete text-danger" onClick={onBatchDelete}>批量删除</button>
-                <div className="divider"></div>
-              </>
-            )}
-          </div>
           <div className="search-group">
             <input
               type="text"
@@ -216,7 +240,10 @@ const InvoiceTable = ({
             </tr>
           </thead>
           <tbody>
-            {records.length === 0 ? (
+            {isLoading ? (
+               // 渲染5行骨架屏占位图
+               Array.from({ length: 5 }).map((_, idx) => <SkeletonRow key={`skeleton-${idx}`} />)
+            ) : records.length === 0 ? (
               <tr>
                 <td colSpan="9">{trimmedQuery ? `未找到发票号 ${trimmedQuery}` : '暂无记录'}</td>
               </tr>
@@ -249,6 +276,35 @@ const InvoiceTable = ({
           下一页
         </button>
       </div>
+
+      {someSelected && (
+        <div className="floating-action-bar active">
+          <div className="floating-action-bar-inner">
+            <div className="floating-info">
+              <span className="selected-count">已选择 {selectedKeys.length} 项</span>
+              <span className="divider"></span>
+              <span className="selected-amount">共计 <span className="font-mono font-bold">¥ {selectedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+            </div>
+            <div className="floating-actions">
+              <button className="btn-pill btn-export" onClick={onBatchExport}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                批量导出
+              </button>
+              <button className="btn-pill btn-delete" onClick={onBatchDelete}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+                批量删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 };

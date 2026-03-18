@@ -32,11 +32,13 @@ const App = () => {
   const [showBatchDelete, setShowBatchDelete] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState([]);
   const [toastMsg, setToastMsg] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / pageSize)), [totalCount]);
 
   const loadLogs = useCallback(async (pageIndex, searchQuery) => {
     try {
+      setIsLoading(true);
       setError('');
       const { rows, total, where, stats: fetchedStats } = await fetchScanLogs(pageIndex, pageSize, searchQuery);
       const activeRows = rows.filter((row) => !isDeletedRow(row));
@@ -76,6 +78,8 @@ const App = () => {
       }
     } catch (e) {
       setError('加载记录失败');
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
@@ -240,6 +244,7 @@ const App = () => {
         {error ? <div className="error-hint">{error}</div> : null}
         <InvoiceTable
           records={records}
+          isLoading={isLoading}
           query={query}
           displayQuery={searchQuery}
           onQueryChange={setQuery}

@@ -28,14 +28,11 @@ const Drawer = ({ record, onClose }) => {
     <div className={`drawer-overlay${isOpen ? ' active' : ''}`} onClick={(e) => {
       if (e.target === e.currentTarget) onClose();
     }}>
-      <aside className="drawer">
-        <div className="drawer-header">
-          <h3>发票详情</h3>
-          <button className="close-btn" onClick={onClose}>
-            <AiOutlineClose size={16} />
-          </button>
-        </div>
-        <div className="drawer-content">
+      <aside className="drawer immersive-drawer">
+        <div className="drawer-split-layout">
+
+          {/* Left Pane: Preview */}
+          <div className="drawer-preview-pane">
           <div className="preview-container">
             <div className={`invoice-preview${isZoomed ? ' scrollable' : ''}`}>
               {showImage ? (
@@ -75,80 +72,106 @@ const Drawer = ({ record, onClose }) => {
                 下载文件
               </a>
             </div>
+            </div>
           </div>
-          <div className="invoice-meta">
-            <div className="meta-group">
-              <label>发票类型</label>
-              <div className="meta-value">{record ? record.type : '—'}</div>
-            </div>
-            <div className="meta-group">
-              <label>开票日期</label>
-              <div className="meta-value">{record ? record.invoiceDate : '—'}</div>
-            </div>
-            <div className="meta-group">
-              <label>发票代码</label>
-              <div className="meta-value">{record ? record.code : '—'}</div>
-            </div>
-            <div className="meta-group">
-              <label>发票号码</label>
-              <div className="meta-value">{record ? record.id : '—'}</div>
-            </div>
-            
-            <div className="meta-divider"></div>
-            
-            <div className="meta-row-flex">
-              <div className="meta-group">
-                <label>价税合计</label>
-                <div className="meta-value amount-highlight">{record ? record.amount : '—'}</div>
-              </div>
-              <div className="meta-group">
-                <label>税额</label>
-                <div className="meta-value">{record && record.raw ? (record.raw.taxamount ? `¥ ${Number(record.raw.taxamount).toLocaleString()}` : '—') : '—'}</div>
-              </div>
-            </div>
-            
-            <div className="meta-divider"></div>
 
-            <div className="meta-group full-width">
-              <label>购买方名称</label>
-              <div className="meta-value">{record ? record.buyer : '—'}</div>
+          {/* Right Pane: Data */}
+          <div className="drawer-data-pane">
+            <div className="drawer-header">
+              <h3>发票详情对照</h3>
+              <button className="close-btn" onClick={onClose}>
+                <AiOutlineClose size={16} />
+              </button>
             </div>
-            <div className="meta-group full-width">
-              <label>购买方纳税人识别号</label>
-              <div className="meta-value">{record && record.raw ? (record.raw.gfNsrsbh || '—') : '—'}</div>
-            </div>
+            <div className="drawer-content">
+              <div className="invoice-meta detailed-form">
 
-            <div className="meta-divider"></div>
-
-            <div className="meta-group full-width">
-              <label>销售方名称</label>
-              <div className="meta-value">{record ? record.seller : '—'}</div>
-            </div>
-            <div className="meta-group full-width">
-              <label>销售方纳税人识别号</label>
-              <div className="meta-value">{record && record.raw ? (record.raw.xfNsrsbh || '—') : '—'}</div>
-            </div>
-
-            {record && record.raw && record.raw.remark && (
-              <>
-                <div className="meta-divider"></div>
-                <div className="meta-group full-width">
-                  <label>备注</label>
-                  <div className="meta-value remark-text">{record.raw.remark}</div>
+                {/* Header Summary section */}
+                <div className="form-summary">
+                  <div className="summary-seller">{record ? record.seller : '—'}</div>
+                  <div className="summary-amount">
+                    <span className="currency">¥</span>
+                    <span className="value">{record && record.amount ? record.amount.replace('¥ ', '') : '—'}</span>
+                  </div>
+                  <div className="summary-status">
+                    <span className={`status-badge ${success ? 'success' : 'fail'}`}>
+                      {success ? '查验通过' : '查验异常'}
+                    </span>
+                  </div>
                 </div>
-              </>
-            )}
-          </div>
-          <div className="result-card">
-            <h4>{resultTitle}</h4>
-            <div className="meta-value">{resultText}</div>
+
+                <div className="meta-row-flex">
+                  <div className="meta-group">
+                    <label>发票号码</label>
+                    <div className="meta-value font-mono font-bold" style={{ fontSize: '18px' }}>{record ? record.id : '—'}</div>
+                  </div>
+                  <div className="meta-group">
+                    <label>发票代码</label>
+                    <div className="meta-value font-mono">{record ? record.code : '—'}</div>
+                  </div>
+                </div>
+
+                <div className="meta-row-flex">
+                  <div className="meta-group">
+                    <label>开票日期</label>
+                    <div className="meta-value">{record ? record.invoiceDate : '—'}</div>
+                  </div>
+                  <div className="meta-group">
+                    <label>发票类型</label>
+                    <div className="meta-value">{record ? record.type : '—'}</div>
+                  </div>
+                </div>
+                
+                <div className="meta-divider"></div>
+
+                <div className="meta-group full-width">
+                  <label>购买方</label>
+                  <div className="meta-value">{record ? record.buyer : '—'}</div>
+                  {record && record.raw && record.raw.gfNsrsbh && (
+                    <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'monospace' }}>
+                      税号: {record.raw.gfNsrsbh}
+                    </div>
+                  )}
+                </div>
+
+                <div className="meta-group full-width">
+                  <label>销售方</label>
+                  <div className="meta-value">{record ? record.seller : '—'}</div>
+                  {record && record.raw && record.raw.xfNsrsbh && (
+                    <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'monospace' }}>
+                      税号: {record.raw.xfNsrsbh}
+                    </div>
+                  )}
+                </div>
+
+                <div className="meta-row-flex">
+                  <div className="meta-group">
+                    <label>税额</label>
+                    <div className="meta-value">
+                      {record && record.raw && record.raw.taxamount 
+                        ? `¥ ${Number(String(record.raw.taxamount).replace(/,/g, '')).toLocaleString('en-US', { minimumFractionDigits: 2 })}` 
+                        : '—'}
+                    </div>
+                  </div>
+                  {record && record.raw && record.raw.remark && (
+                    <div className="meta-group">
+                      <label>备注</label>
+                      <div className="meta-value remark-text">{record.raw.remark}</div>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="result-card" style={{ marginTop: '32px' }}>
+                  <h4>{resultTitle}</h4>
+                  <div className="meta-value">{resultText}</div>
+                </div>
+
           </div>
         </div>
-        <div className="drawer-footer">
-          <button className="btn-text" onClick={onClose}>关闭</button>
-        </div>
-      </aside>
+      </div>
     </div>
+  </aside>
+</div>
   );
 };
 
