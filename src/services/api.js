@@ -344,21 +344,53 @@ export const fetchScanLogs = async (pageIndex, pageSize, query) => {
     const total = Number(result.TOTAL || rows.length || 0);
     return { rows, total, where };
   }
-  const matchInvoiceNo = (row, invoiceNo) => {
-    if (!row || !invoiceNo) return false;
-    const direct = [
-      row.FaPiaoHM,
-      row.fphm,
-      row.FPHM,
-      row.FaPiaoHm,
-      row.fphmStr,
-      row.FaPiaoHMStr
+  const matchQuery = (row, queryText) => {
+    if (!row || !queryText) return false;
+    const lowerQuery = String(queryText).toLowerCase();
+    
+    // Direct base fields (Invoice Number & Code)
+    const directFields = [
+      row.FaPiaoHM, row.fphm, row.FPHM, row.FaPiaoHm, row.fphmStr, row.FaPiaoHMStr,
+      row.FaPiaoDM, row.fpdm, row.FPDM
     ];
+    
+    let amountStr = '';
+    let vendorBuyerStr = '';
+    let kprqStr = '';
+    
     const json = parseJsonValue(row.json);
     if (json && typeof json === 'object') {
-      direct.push(json.fphm, json.number, json.id, json.FaPiaoHM, json.FaPiaoHm, json.fpHm, json.fpHM);
+      const g = json.data || json;
+      directFields.push(
+        g.fphm, g.number, g.id, g.FaPiaoHM, g.FaPiaoHm, g.fpHm, g.fpHM,
+        g.fpdm, g.code, g.FaPiaoDM
+      );
+      
+      amountStr = String(g.taxamount || g.sumamount || g.goodsamount || '');
+      vendorBuyerStr = `${g.xfMc || g.xfmc || ''} ${g.gfMc || g.gfmc || g.company || ''}`;
+      kprqStr = String(g.kprq || g.kpsj || g.date || '');
     }
-    return direct.some((value) => value !== undefined && value !== null && String(value).trim() === invoiceNo);
+
+    // 1. Check direct fields (Invoice No/Code)
+    if (directFields.some((v) => v !== undefined && v !== null && String(v).toLowerCase().includes(lowerQuery))) {
+      return true;
+    }
+    
+    // 2. Check vendor/buyer name
+    if (vendorBuyerStr.toLowerCase().includes(lowerQuery)) return true;
+    
+    // 3. Check amount
+    if (amountStr && amountStr.includes(lowerQuery)) return true;
+    
+    // 4. Check date
+    if (kprqStr && kprqStr.includes(lowerQuery)) return true;
+    
+    // 5. Check status
+    const ok = row && (row.success === 1 || row.success === true || String(row.success).toLowerCase() === 'true');
+    const statusStr = ok ? '成功 通过 success 查验成功 验真成功' : '失败 异常 fail 查验失败 异常';
+    if (statusStr.includes(lowerQuery)) return true;
+
+    return false;
   };
   const scanPageSize = Math.max(pageSize, 200);
   const maxPages = 20;
@@ -378,7 +410,7 @@ export const fetchScanLogs = async (pageIndex, pageSize, query) => {
     const total = Number(result.TOTAL || rows.length || 0);
     totalPages = Math.max(1, Math.ceil(total / scanPageSize));
     rows.forEach((row) => {
-      if (matchInvoiceNo(row, trimmed)) collected.push(row);
+      if (matchQuery(row, trimmed)) collected.push(row);
     });
     currentPage += 1;
   }
@@ -560,20 +592,36 @@ export const verifyImageInvoice = async (file) => {
 export const uploadFileToServer = async (file) => {
   const formData = new FormData();
   formData.append('imgFile', file);
-  const response = await fetch(appConfig.uploadUrl, {
+  
+  let targetUrl = appConfig.uploadUrl;
+  // Upload API rejects images if dir=file. Dynamically switch to dir=image.
+  if (file.type && file.type.startsWith('image/')) {
+    targetUrl = targetUrl.replace('dir=file', 'dir=image');
+  }
+  
+  const headers = {};
+  if (appConfig.jetopAuthToken) {
+    headers['X-JetopDebug-User'] = appConfig.jetopAuthToken;
+  }
+
+  const response = await fetch(targetUrl, {
     method: 'POST',
-    body: formData
+    body: formData,
+    headers
   });
+  
   if (!response.ok) {
     return '';
   }
   const text = await response.text();
+  
   let realRes;
   try {
-    realRes = typeof text === 'string' ? JSON.parse(text) : text;
+    realRes = typeof text === 'string' && text.trim() ? JSON.parse(text) : text;
   } catch (e) {
     realRes = {};
   }
+  
   if (!realRes || !realRes.url) {
     return '';
   }

@@ -6,6 +6,7 @@ import InvoiceTable from './components/InvoiceTable.jsx';
 import Drawer from './components/Drawer.jsx';
 import { fetchScanLogs, fetchStats, markScanLogDeleted, markScanLogBatchDeleted, verifyInvoiceWithUpload } from './services/api.js';
 import { buildWhereFromQuery, createProcessingRecord, mapLogToRecord } from './utils/invoice.js';
+import { downloadExcel } from './utils/exporter.js';
 
 const pageSize = 10;
 
@@ -33,6 +34,14 @@ const App = () => {
   const [selectedKeys, setSelectedKeys] = useState([]);
   const [toastMsg, setToastMsg] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+
+  useEffect(() => {
+    if (toastMsg) {
+      const timer = setTimeout(() => setToastMsg(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMsg]);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / pageSize)), [totalCount]);
 
@@ -216,24 +225,34 @@ const App = () => {
     setShowBatchDelete(false);
   }, [deleteLoading]);
 
-  const handleBatchExport = useCallback(() => {
-    if (!selectedKeys.length) return;
+  const handleBatchExport = useCallback(async () => {
+    if (!selectedKeys.length || isExporting) return;
     
     // 获取选中项的详细数据（用于导出）
     const selectedRecords = records.filter(r => selectedKeys.includes(r.key));
-    const rowIds = selectedRecords.map(r => r.rowId).filter(Boolean);
     
-    if (rowIds.length === 0) {
+    if (selectedRecords.length === 0) {
       setToastMsg('选中项中没有可导出的有效记录');
       return;
     }
 
-    setToastMsg(`正在请求导出 ${rowIds.length} 项发票数据...`);
-    
-    // 模拟或调用后端导出接口
-    console.log('[Batch Export] Selected Row IDs:', rowIds);
-    // window.location.href = `${appConfig.exportUrl}?ids=${rowIds.join(',')}`;
-  }, [selectedKeys, records]);
+    try {
+      setIsExporting(true);
+      // Optional slight delay to allow UI to render spinner
+      await new Promise(res => setTimeout(res, 500));
+      
+      downloadExcel(selectedRecords, '发票数据导出');
+      setToastMsg(`成功导出 ${selectedRecords.length} 项发票数据`);
+      
+      // 导出完毕后可选是否要清空选中（通常导出不需要清空，根据业务定）
+      // setSelectedKeys([]);
+    } catch (e) {
+      console.error('Export Failed:', e);
+      setToastMsg('导出失败，请重试');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [selectedKeys, records, isExporting]);
 
   return (
     <div className="app-container">
@@ -245,6 +264,7 @@ const App = () => {
         <InvoiceTable
           records={records}
           isLoading={isLoading}
+          isExporting={isExporting}
           query={query}
           displayQuery={searchQuery}
           onQueryChange={setQuery}

@@ -833,7 +833,7 @@ td:hover .copy-btn {
     /* Cyan-50 */
     color: #0891b2;
     /* Cyan-600 */
-    max-width: 150px;
+    max-width: 200px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1095,6 +1095,76 @@ td:hover .copy-btn {
 .w-60 { width: 60px; }
 .mt-1 { margin-top: 4px; }
 .ml-1 { margin-left: 4px; }
+
+/* Spinner Animation for Export Button */
+.btn-pill .loading-spinner {
+    animation: spin 1s linear infinite;
+    opacity: 0.9;
+    flex-shrink: 0;
+}
+
+.btn-pill.exporting {
+    opacity: 0.8;
+    pointer-events: none;
+    cursor: wait;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Omni-Search Styles */
+.omni-search-input {
+    width: 260px !important;
+    transition: width 0.3s ease;
+}
+.omni-search-input:focus {
+    width: 320px !important;
+}
+
+.empty-search-state {
+    padding: 32px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 15px;
+}
+.highlight-query {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+/* Skeleton & Scanning Rows */
+.scanning-row {
+    position: relative;
+    overflow: hidden;
+}
+
+/* Simulated laser sweep across the row */
+.scanning-row::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 200%;
+    height: 100%;
+    background: linear-gradient(
+        90deg, 
+        transparent 0%, 
+        rgba(37, 99, 235, 0.05) 45%, 
+        rgba(37, 99, 235, 0.4) 50%, 
+        rgba(37, 99, 235, 0.05) 55%, 
+        transparent 100%
+    );
+    animation: scanSweep 2.5s infinite linear;
+    pointer-events: none;
+    z-index: 5;
+}
+
+@keyframes scanSweep {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(100%); }
+}
 
 /* Drawer */
 /* ====== DRAWER (SIDE PANEL) ====== */

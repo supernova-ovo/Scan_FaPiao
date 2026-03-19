@@ -117,7 +117,7 @@ const InvoiceRow = ({ record, onView, onDelete, isSelected, onSelect, onCopy }) 
         <span className="tag tag-amount font-mono font-bold amount-text">{record.amount}</span>
       </td>
       <td>
-        <span className="tag tag-company">{record.seller}</span>
+        <span className="tag tag-company" title={record.seller}>{record.seller}</span>
       </td>
       <td>
         <span className="tag tag-date">{record.type}</span>
@@ -164,7 +164,8 @@ const InvoiceTable = ({
   onSelectRow,
   onSelectAll,
   onBatchDelete,
-  onBatchExport
+  onBatchExport,
+  isExporting
 }) => {
   const trimmedQuery = String(displayQuery || '').trim();
   const selectableRecords = records.filter(r => r.status !== 'processing');
@@ -202,7 +203,8 @@ const InvoiceTable = ({
             <input
               type="text"
               value={query}
-              placeholder="输入发票号码"
+              placeholder="智能搜索: 号码/销方/金额/状态..."
+              className="omni-search-input"
               onChange={(e) => onQueryChange(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') onSearch();
@@ -245,7 +247,13 @@ const InvoiceTable = ({
                Array.from({ length: 5 }).map((_, idx) => <SkeletonRow key={`skeleton-${idx}`} />)
             ) : records.length === 0 ? (
               <tr>
-                <td colSpan="9">{trimmedQuery ? `未找到发票号 ${trimmedQuery}` : '暂无记录'}</td>
+                <td colSpan="9">
+                  {trimmedQuery ? (
+                    <div className="empty-search-state">
+                      未找到与 <span className="highlight-query">"{trimmedQuery}"</span> 匹配的发票记录
+                    </div>
+                  ) : '暂无记录'}
+                </td>
               </tr>
             ) : (
               records.map((record) =>
@@ -286,13 +294,26 @@ const InvoiceTable = ({
               <span className="selected-amount">共计 <span className="font-mono font-bold">¥ {selectedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
             </div>
             <div className="floating-actions">
-              <button className="btn-pill btn-export" onClick={onBatchExport}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="7 10 12 15 17 10"></polyline>
-                  <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-                批量导出
+              <button className={`btn-pill btn-export ${isExporting ? 'exporting' : ''}`} onClick={onBatchExport} disabled={isExporting}>
+                {isExporting ? (
+                  <svg className="loading-spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="2" x2="12" y2="6"></line>
+                    <line x1="12" y1="18" x2="12" y2="22"></line>
+                    <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                    <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                    <line x1="2" y1="12" x2="6" y2="12"></line>
+                    <line x1="18" y1="12" x2="22" y2="12"></line>
+                    <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                    <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                )}
+                {isExporting ? '导出中...' : '批量导出'}
               </button>
               <button className="btn-pill btn-delete" onClick={onBatchDelete}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
