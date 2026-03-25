@@ -3,7 +3,6 @@ import { AiOutlineCloudUpload } from 'react-icons/ai';
 
 const UploadSection = ({ onFiles, isCompact }) => {
   const inputRef = useRef(null);
-  const [dragOver, setDragOver] = useState(false);
 
   const emitFiles = (fileList) => {
     const files = Array.isArray(fileList) ? fileList : Array.from(fileList || []);
@@ -13,21 +12,8 @@ const UploadSection = ({ onFiles, isCompact }) => {
 
   return (
     <section
-      className={`upload-section${dragOver ? ' drag-over' : ''}${isCompact ? ' compact' : ''}`}
+      className={`upload-section${isCompact ? ' compact' : ''}`}
       onClick={() => inputRef.current && inputRef.current.click()}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragOver(true);
-      }}
-      onDragLeave={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-        emitFiles(e.dataTransfer.files);
-      }}
     >
       <input
         ref={inputRef}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AiOutlineCloudUpload } from 'react-icons/ai';
 import Header from './components/Header.jsx';
 import StatsGrid from './components/StatsGrid.jsx';
 import UploadSection from './components/UploadSection.jsx';
@@ -35,15 +36,7 @@ const App = () => {
   const [toastMsg, setToastMsg] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
-
-  useEffect(() => {
-    if (toastMsg) {
-      const timer = setTimeout(() => setToastMsg(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [toastMsg]);
-
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / pageSize)), [totalCount]);
+  const [isDragging, setIsDragging] = useState(false);
 
   const loadLogs = useCallback(async (pageIndex, searchQuery) => {
     try {
@@ -91,6 +84,44 @@ const App = () => {
       setIsLoading(false);
     }
   }, []);
+
+  const handleFiles = useCallback(async (files) => {
+    for (const file of files) {
+      const key = `${file.name}-${Date.now()}-${Math.random()}`;
+      const processing = createProcessingRecord(file, key);
+      setRecords((prev) => [processing, ...prev]);
+      try {
+        const result = await verifyInvoiceWithUpload(file);
+        const record = {
+          ...result.data,
+          status: result.success ? 'success' : 'fail',
+          preview: result.preview,
+          message: result.raw && result.raw.message ? result.raw.message : '查验失败',
+          key
+        };
+        setRecords((prev) => prev.map((item) => (item.key === key ? record : item)));
+      } catch (e) {
+        setRecords((prev) =>
+          prev.map((item) =>
+            item.key === key
+              ? { ...item, status: 'fail', message: e && e.message ? e.message : '查验失败' }
+              : item
+          )
+        );
+      }
+    }
+    // 处理完成后，刷新一次列表和统计数据，确保计数自动增加
+    loadLogs(page, searchQuery);
+  }, [loadLogs, page, searchQuery]);
+
+  useEffect(() => {
+    if (toastMsg) {
+      const timer = setTimeout(() => setToastMsg(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMsg]);
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / pageSize)), [totalCount]);
 
   const handleDelete = useCallback(async (record) => {
     if (!record || !record.rowId) {
@@ -149,34 +180,56 @@ const App = () => {
     return () => window.removeEventListener('show-toast', onShowToast);
   }, []);
 
-  const handleFiles = async (files) => {
-    for (const file of files) {
-      const key = `${file.name}-${Date.now()}-${Math.random()}`;
-      const processing = createProcessingRecord(file, key);
-      setRecords((prev) => [processing, ...prev]);
-      try {
-        const result = await verifyInvoiceWithUpload(file);
-        const record = {
-          ...result.data,
-          status: result.success ? 'success' : 'fail',
-          preview: result.preview,
-          message: result.raw && result.raw.message ? result.raw.message : '查验失败',
-          key
-        };
-        setRecords((prev) => prev.map((item) => (item.key === key ? record : item)));
-      } catch (e) {
-        setRecords((prev) =>
-          prev.map((item) =>
-            item.key === key
-              ? { ...item, status: 'fail', message: e && e.message ? e.message : '查验失败' }
-              : item
-          )
-        );
+  useEffect(() => {
+    let dragCounter = 0;
+
+    const handleWindowDragOver = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const handleWindowDragEnter = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter++;
+      if (e.dataTransfer.types.includes('Files')) {
+        setIsDragging(true);
       }
-    }
-    // 处理完成后，刷新一次列表和统计数据，确保计数自动增加
-    loadLogs(page, searchQuery);
-  };
+    };
+
+    const handleWindowDragLeave = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter--;
+      if (dragCounter === 0) {
+        setIsDragging(false);
+      }
+    };
+
+    const handleWindowDrop = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+      dragCounter = 0;
+      
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) {
+        handleFiles(files);
+      }
+    };
+
+    window.addEventListener('dragover', handleWindowDragOver);
+    window.addEventListener('dragenter', handleWindowDragEnter);
+    window.addEventListener('dragleave', handleWindowDragLeave);
+    window.addEventListener('drop', handleWindowDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleWindowDragOver);
+      window.removeEventListener('dragenter', handleWindowDragEnter);
+      window.removeEventListener('dragleave', handleWindowDragLeave);
+      window.removeEventListener('drop', handleWindowDrop);
+    };
+  }, [handleFiles]);
 
   const handleSelectRow = useCallback((key, isSelected) => {
     setSelectedKeys((prev) =>
@@ -256,6 +309,15 @@ const App = () => {
 
   return (
     <div className="app-container">
+      <div className={`global-drag-overlay${isDragging ? ' active' : ''}`}>
+        <div className="drag-hint-box">
+          <div className="drag-hint-icon">
+            <AiOutlineCloudUpload size={40} />
+          </div>
+          <div className="drag-hint-text">松开即可上传发票</div>
+          <div className="drag-hint-subtext">支持 PDF、OFD、JPG、PNG 格式</div>
+        </div>
+      </div>
       <Header />
       <main>
         <StatsGrid total={stats.total} success={stats.success} fail={stats.fail} />
